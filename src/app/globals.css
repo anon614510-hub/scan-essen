@@ -247,3 +247,208 @@ body {
   outline: none;
   box-shadow: 0 0 0 2px #0a0f1a, 0 0 0 4px rgba(52, 211, 153, 0.5);
 }
+
+/* ========================================
+   SCAN SUCCESS ANIMATIONS
+   ======================================== */
+
+/* Scanning laser line effect */
+@keyframes scan-line {
+  0% {
+    top: 0;
+    opacity: 0;
+  }
+
+  10% {
+    opacity: 1;
+  }
+
+  90% {
+    opacity: 1;
+  }
+
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
+.animate-scan-line {
+  animation: scan-line 1.5s ease-in-out infinite;
+}
+
+/* Slow ping for burst effect */
+@keyframes ping-slow {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.animate-ping-slow {
+  animation: ping-slow 1.5s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+/* Even slower ping */
+@keyframes ping-slower {
+  0% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.animate-ping-slower {
+  animation: ping-slower 2s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+/* Particle explosion effect */
+@keyframes particle {
+  0% {
+    transform: rotate(var(--particle-angle, 0deg)) translateY(0) scale(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: rotate(var(--particle-angle, 0deg)) translateY(-120px) scale(0);
+    opacity: 0;
+  }
+}
+
+.animate-particle {
+  animation: particle 1.2s ease-out forwards;
+}
+
+/* Bounce-in effect for checkmark */
+@keyframes bounce-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+
+  50% {
+    transform: scale(1.2);
+  }
+
+  70% {
+    transform: scale(0.9);
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-bounce-in {
+  animation: bounce-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* Subtle bounce for capture button success state */
+@keyframes bounce-subtle {
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.animate-bounce-subtle {
+  animation: bounce-subtle 0.8s ease-in-out infinite;
+}
+
+/* Float up animation for ingredient names */
+@keyframes float-up {
+  0% {
+    transform: translate(0, 0) scale(0.8);
+    opacity: 0;
+  }
+
+  20% {
+    opacity: 1;
+    transform: translate(var(--float-x, 0), -20px) scale(1);
+  }
+
+  80% {
+    opacity: 1;
+    transform: translate(var(--float-x, 0), -80px) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(var(--float-x, 0), -120px) scale(0.8);
+  }
+}
+
+.animate-float-up {
+  animation: float-up 2s ease-out forwards;
+}
+
+/* Ingredient tag appear animation */
+@keyframes ingredient-appear {
+  0% {
+    transform: scale(0) translateY(20px);
+    opacity: 0;
+  }
+
+  50% {
+    transform: scale(1.1) translateY(-5px);
+  }
+
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-ingredient-appear {
+  animation: ingredient-appear 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+/* Ripple effect for scan button */
+@keyframes ripple {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.animate-ripple {
+  animation: ripple 1s ease-out infinite;
+}
+
+/* Glow pulse for success state */
+@keyframes glow-pulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(74, 222, 128, 0.4);
+  }
+
+  50% {
+    box-shadow: 0 0 40px rgba(74, 222, 128, 0.8),
+      0 0 60px rgba(74, 222, 128, 0.4);
+  }
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 1s ease-in-out infinite;
+}

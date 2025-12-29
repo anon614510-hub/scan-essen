@@ -1,86 +1,135 @@
 "use server";
 
-import OpenAI from "openai";
 import { Ingredient, Recipe } from "@/lib/types";
 
-// Lazy initialization to avoid errors when API key is not set
-function getOpenAIClient() {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-        return null;
-    }
-    return new OpenAI({ apiKey });
-}
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "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";
 
 /**
- * Analyze a fridge image to detect ingredients
+ * Analyze a fridge image to detect ingredients using OpenRouter
  */
 export async function analyzeImage(base64Image: string): Promise<{
     ingredients: Ingredient[];
     error?: string;
 }> {
     try {
-        const openai = getOpenAIClient();
-        if (!openai) {
-            return { ingredients: [], error: "OpenAI API key not configured" };
-        }
-
-        // Extract base64 data (remove data URL prefix if present)
-        const base64Data = base64Image.includes(",")
-            ? base64Image.split(",")[1]
-            : base64Image;
-
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are a food ingredient detection assistant. Analyze the fridge/food image and identify all visible ingredients.
+        const prompt = `You are a food ingredient detection assistant. Analyze the image and identify ALL visible food items and edible ingredients.
                     
-For each ingredient, provide:
-- name: the ingredient name
-- quantity: estimated quantity (e.g., "2 pieces", "1 carton", "half full")
+This includes:
+- Fresh produce (fruits, vegetables)
+- Packaged foods and snacks
+- Beverages and drinks
+- Cooked dishes and prepared meals
+- Baked goods (bread, pastries)
+- Dairy products
+- Meat, fish, and proteins
+- Grains, cereals, and pasta
+- Condiments and sauces
+- Any other edible items
+
+For each food item, provide:
+- name: the food/ingredient name
+- quantity: estimated quantity (e.g., "2 pieces", "1 packet", "half portion")
 - expiry_status: "fresh", "soon" (will expire soon), or "expired"
 - expiry_reasoning: brief reason for the expiry status
 
-Respond with a JSON array of ingredients only, no other text. Example:
-[{"name": "Eggs", "quantity": "6 pieces", "expiry_status": "fresh", "expiry_reasoning": "Shell looks intact and clean"}]`,
-                },
-                {
-                    role: "user",
-                    content: [
-                        {
-                            type: "text",
-                            text: "Identify all the food ingredients visible in this fridge image:",
-                        },
-                        {
-                            type: "image_url",
-                            image_url: {
-                                url: `data:image/jpeg;base64,${base64Data}`,
-                            },
-                        },
-                    ],
-                },
-            ],
-            max_tokens: 1000,
-        });
+Respond with a JSON array of food items only, no other text. Example:
+[{"name": "Chips", "quantity": "1 packet", "expiry_status": "fresh", "expiry_reasoning": "Sealed package"}]`;
 
-        const content = response.choices[0]?.message?.content || "[]";
+        // VERIFIED free vision models from OpenRouter API
+        const visionModels = [
+            "qwen/qwen2.5-vl-72b-instruct:free",
+            "qwen/qwen-2.5-vl-7b-instruct:free",
+            "google/gemma-3-12b-it:free",
+            "google/gemma-3-4b-it:free",
+            "nvidia/nemotron-nano-12b-v2-vl:free",
+            "google/gemini-2.0-flash-exp:free"
+        ];
 
-        // Parse the JSON response
-        let ingredients: Ingredient[] = [];
-        try {
-            // Try to extract JSON from the response
-            const jsonMatch = content.match(/\[[\s\S]*\]/);
-            if (jsonMatch) {
-                ingredients = JSON.parse(jsonMatch[0]);
+        for (const model of visionModels) {
+            try {
+                console.log(`Trying vision model: ${model}`);
+                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "http://localhost:3000",
+                        "X-Title": "Scan-Essen"
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [
+                            {
+                                role: "user",
+                                content: [
+                                    { type: "text", text: prompt },
+                                    { type: "image_url", image_url: { url: base64Image } }
+                                ]
+                            }
+                        ]
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    console.log(`Model ${model} failed:`, data.error.message);
+                    continue;
+                }
+
+                const content = data.choices?.[0]?.message?.content || "[]";
+                console.log(`Model ${model} SUCCESS! Response:`, content.substring(0, 300));
+
+                let ingredients: Ingredient[] = [];
+                try {
+                    // Try to find a JSON array - use greedy match to get the full array
+                    const jsonMatch = content.match(/\[[\s\S]*\]/);
+                    if (jsonMatch) {
+                        let jsonStr = jsonMatch[0];
+
+                        // Clean up any trailing commas before closing brackets
+                        jsonStr = jsonStr.replace(/,\s*\]/g, "]");
+                        jsonStr = jsonStr.replace(/,\s*\}/g, "}");
+
+                        try {
+                            ingredients = JSON.parse(jsonStr);
+                        } catch {
+                            // If that fails, try to extract just the first complete array
+                            const simpleMatch = content.match(/\[\s*\{[^[\]]*\}\s*\]/);
+                            if (simpleMatch) {
+                                ingredients = JSON.parse(simpleMatch[0]);
+                            }
+                        }
+
+                        // Validate the parsed ingredients
+                        if (!Array.isArray(ingredients)) {
+                            ingredients = [];
+                        } else {
+                            // Filter out invalid entries
+                            ingredients = ingredients.filter((item): item is Ingredient =>
+                                typeof item === 'object' &&
+                                item !== null &&
+                                typeof item.name === 'string' &&
+                                item.name.trim().length > 0
+                            );
+                        }
+                    }
+                } catch (parseError) {
+                    console.error("Failed to parse ingredients:", parseError);
+                    continue; // Move to next model
+                }
+
+                // Return if we got valid ingredients
+                if (ingredients.length > 0) {
+                    return { ingredients };
+                }
+                console.log(`Model ${model} returned empty/invalid ingredients, trying next model...`);
+            } catch (e) {
+                console.log(`Model ${model} error:`, e);
             }
-        } catch {
-            console.error("Failed to parse ingredients:", content);
-            return { ingredients: [], error: "Failed to parse ingredients from image" };
         }
 
-        return { ingredients };
+        return { ingredients: [], error: "All vision models unavailable. Please try again." };
     } catch (error) {
         console.error("Image analysis error:", error);
         return {
@@ -91,22 +140,18 @@ Respond with a JSON array of ingredients only, no other text. Example:
 }
 
 /**
- * Generate a recipe from detected ingredients
+ * Generate a recipe from detected ingredients using OpenRouter
  */
 export async function generateRecipe(
     ingredients: Ingredient[],
     cuisine: string = "Any",
-    equipment: string[] = []
+    equipment: string[] = [],
+    preferences: string = ""
 ): Promise<{
     recipe: Recipe | null;
     error?: string;
 }> {
     try {
-        const openai = getOpenAIClient();
-        if (!openai) {
-            return { recipe: null, error: "OpenAI API key not configured" };
-        }
-
         if (ingredients.length === 0) {
             return { recipe: null, error: "No ingredients provided" };
         }
@@ -123,15 +168,15 @@ export async function generateRecipe(
             ? `The recipe should be ${cuisine} cuisine style.`
             : "";
 
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are a creative AI chef. Generate a delicious, practical recipe using the provided ingredients.
+        const preferencesNote = preferences
+            ? `User preferences/request: "${preferences}". Make sure to incorporate this into the recipe.`
+            : "";
+
+        const prompt = `You are a creative AI chef. Generate a delicious, practical recipe using the provided ingredients.
 
 ${cuisineNote}
 ${equipmentNote}
+${preferencesNote}
 
 Respond with a JSON object containing:
 - title: creative recipe name
@@ -142,32 +187,99 @@ Respond with a JSON object containing:
 - magic_spice: one additional ingredient suggestion to elevate the dish
 - magic_spice_reasoning: why this spice would work
 
-Respond with JSON only, no other text.`,
-                },
-                {
-                    role: "user",
-                    content: `Create a recipe using these ingredients: ${ingredientList}`,
-                },
-            ],
-            max_tokens: 1500,
-        });
+Respond with JSON only, no other text.
 
-        const content = response.choices[0]?.message?.content || "{}";
+Create a recipe using these ingredients: ${ingredientList}`;
 
-        // Parse the JSON response
-        let recipe: Recipe | null = null;
-        try {
-            // Try to extract JSON from the response
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                recipe = JSON.parse(jsonMatch[0]);
+        // Verified working free text models (open source)
+        const textModels = [
+            "nousresearch/deephermes-3-llama-3-8b-preview:free",
+            "nousresearch/hermes-3-llama-3.1-70b:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "mistralai/mistral-nemo:free",
+            "deepseek/deepseek-r1:free",
+            "moonshotai/kimi-k2:free",
+            "google/gemma-3-27b-it:free",
+            "qwen/qwen-2.5-vl-7b-instruct:free",
+            "google/gemma-3-12b-it:free",
+            "google/gemma-3-4b-it:free"
+        ];
+
+        for (const model of textModels) {
+            try {
+                console.log(`Trying text model: ${model}`);
+                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "http://localhost:3000",
+                        "X-Title": "Scan-Essen"
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [
+                            { role: "user", content: prompt }
+                        ]
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    console.log(`Model ${model} failed:`, data.error.message);
+                    continue;
+                }
+
+                const content = data.choices?.[0]?.message?.content || "{}";
+                console.log(`Model ${model} SUCCESS! Content:`, content.substring(0, 500));
+
+                let recipe: Recipe | null = null;
+                try {
+                    // Try to find a JSON object - use greedy match
+                    const jsonMatch = content.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        let jsonStr = jsonMatch[0];
+
+                        // Clean up trailing commas
+                        jsonStr = jsonStr.replace(/,\s*\}/g, "}");
+                        jsonStr = jsonStr.replace(/,\s*\]/g, "]");
+
+                        const parsed = JSON.parse(jsonStr);
+
+                        // Ensure recipe has all required fields with defaults
+                        recipe = {
+                            title: parsed.title || "Delicious Recipe",
+                            ingredients: Array.isArray(parsed.ingredients) ? parsed.ingredients : [],
+                            instructions: Array.isArray(parsed.instructions) ? parsed.instructions : [],
+                            health_score: typeof parsed.health_score === 'number' ? parsed.health_score : 7,
+                            health_reasoning: parsed.health_reasoning || "A balanced and nutritious dish.",
+                            magic_spice: parsed.magic_spice || "",
+                            magic_spice_reasoning: parsed.magic_spice_reasoning || ""
+                        };
+
+                        // Validate recipe has at least a title
+                        if (!recipe.title || recipe.title === "Delicious Recipe" && recipe.ingredients.length === 0) {
+                            console.log("Invalid recipe structure, trying next model...");
+                            continue;
+                        }
+
+                        console.log("Parsed recipe successfully:", recipe.title);
+                    }
+                } catch (parseError) {
+                    console.error("Failed to parse recipe:", parseError);
+                    continue;
+                }
+
+                if (recipe) {
+                    return { recipe };
+                }
+            } catch (e) {
+                console.log(`Model ${model} error:`, e);
             }
-        } catch {
-            console.error("Failed to parse recipe:", content);
-            return { recipe: null, error: "Failed to parse recipe response" };
         }
 
-        return { recipe };
+        return { recipe: null, error: "All models unavailable. Please try again." };
     } catch (error) {
         console.error("Recipe generation error:", error);
         return {

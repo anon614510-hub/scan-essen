@@ -1,46 +1,86 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Camera, Search, BarChart2, HelpCircle, Loader2, ShoppingCart } from "lucide-react";
+import { Camera, Search, BarChart2, HelpCircle, Loader2, ShoppingCart, Mic, MicOff } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { analyzeImage, generateRecipe } from "@/app/actions";
 import { Ingredient, Recipe } from "@/lib/types";
 import RecipeDisplay from "./RecipeDisplay";
 
-// Emoji mapping for common ingredients
+// Emoji mapping for common ingredients and food items
 const INGREDIENT_EMOJIS: Record<string, string> = {
+    // Proteins
     eggs: "🥚", egg: "🥚",
-    milk: "🥛",
-    spinach: "🥬", lettuce: "🥬", greens: "🥬",
+    chicken: "🍗", turkey: "🍗",
+    meat: "🥩", beef: "🥩", steak: "🥩", pork: "🥩",
+    fish: "🐟", salmon: "🐟", tuna: "🐟", shrimp: "🦐", prawn: "🦐",
+    bacon: "🥓",
+
+    // Dairy
+    milk: "🥛", yogurt: "🥛", cream: "🥛",
+    cheese: "🧀",
+    butter: "🧈",
+    ice: "🍦", icecream: "🍦",
+
+    // Vegetables
+    spinach: "🥬", lettuce: "🥬", greens: "🥬", salad: "🥗",
     carrot: "🥕", carrots: "🥕",
     tomato: "🍅", tomatoes: "🍅",
-    apple: "🍎", apples: "🍎",
-    orange: "🍊", oranges: "🍊",
-    banana: "🍌", bananas: "🍌",
-    cheese: "🧀",
-    bread: "🍞",
-    butter: "🧈",
-    chicken: "🍗",
-    meat: "🥩", beef: "🥩", steak: "🥩",
-    fish: "🐟", salmon: "🐟",
     broccoli: "🥦",
-    pepper: "🌶️", peppers: "🌶️",
+    pepper: "🌶️", peppers: "🌶️", chili: "🌶️",
     onion: "🧅", onions: "🧅",
     garlic: "🧄",
-    potato: "🥔", potatoes: "🥔",
+    potato: "🥔", potatoes: "🥔", fries: "🍟",
     cucumber: "🥒", cucumbers: "🥒",
     avocado: "🥑",
-    lemon: "🍋", lemons: "🍋",
-    strawberry: "🍓", strawberries: "🍓",
-    grapes: "🍇",
-    watermelon: "🍉",
     corn: "🌽",
     mushroom: "🍄", mushrooms: "🍄",
     edamame: "🫛", beans: "🫛", peas: "🫛",
-    yogurt: "🥛",
-    juice: "🧃",
-    water: "💧",
+    eggplant: "🍆",
+
+    // Fruits
+    apple: "🍎", apples: "🍎",
+    orange: "🍊", oranges: "🍊",
+    banana: "🍌", bananas: "🍌",
+    lemon: "🍋", lemons: "🍋", lime: "🍋",
+    strawberry: "🍓", strawberries: "🍓", berry: "🍓",
+    grapes: "🍇", grape: "🍇",
+    watermelon: "🍉", melon: "🍈",
+    peach: "🍑", mango: "🥭", pineapple: "🍍",
+    cherry: "🍒", cherries: "🍒",
+    coconut: "🥥", kiwi: "🥝",
+
+    // Bread & Grains
+    bread: "🍞", toast: "🍞", loaf: "🍞",
+    rice: "🍚", noodle: "🍜", pasta: "🍝", spaghetti: "🍝",
+    pizza: "🍕",
+    sandwich: "🥪", burger: "🍔", hotdog: "🌭",
+    taco: "🌮", burrito: "🌯",
+    croissant: "🥐", bagel: "🥯", pretzel: "🥨",
+    pancake: "🥞", waffle: "🧇",
+
+    // Snacks & Packaged
+    chips: "🍿", popcorn: "🍿", crisp: "🍿",
+    cookie: "🍪", cookies: "🍪", biscuit: "🍪",
+    cake: "🍰", pie: "🥧", cupcake: "🧁",
+    chocolate: "🍫", candy: "🍬", lollipop: "🍭",
+    donut: "🍩", doughnut: "🍩",
+
+    // Beverages
+    juice: "🧃", smoothie: "🧃",
+    water: "💧", bottle: "🍼",
+    coffee: "☕", tea: "🍵",
+    soda: "🥤", cola: "🥤", drink: "🥤", coke: "🥤",
+    beer: "🍺", wine: "🍷",
+
+    // Condiments & Others
+    honey: "🍯",
+    salt: "🧂",
+    sauce: "🫙", ketchup: "🫙", mayo: "🫙",
+    oil: "🫒", olive: "🫒",
+    nut: "🥜", peanut: "🥜", almond: "🥜",
+
     default: "🍽️"
 };
 
@@ -64,8 +104,67 @@ export default function ArInterface() {
     const [recipe, setRecipe] = useState<Recipe | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isListening, setIsListening] = useState(false);
+    const [voiceTranscript, setVoiceTranscript] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [recipesGenerated, setRecipesGenerated] = useState(0);
+    const [showScanSuccess, setShowScanSuccess] = useState(false);
+    const [newlyScannedItems, setNewlyScannedItems] = useState<string[]>([]);
+    const [scanStatus, setScanStatus] = useState<string>("");
+
+    // Voice Recognition Setup
+    const startListening = useCallback(() => {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            setError("Voice recognition not supported in this browser.");
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = "en-US";
+
+        recognition.onstart = () => {
+            setIsListening(true);
+            setVoiceTranscript("");
+        };
+
+        recognition.onresult = (event: any) => {
+            const transcript = event.results[0][0].transcript;
+            setVoiceTranscript(transcript);
+            handleGenerateWithVoice(transcript);
+        };
+
+        recognition.onerror = (event: any) => {
+            setError(`Voice error: ${event.error}`);
+            setIsListening(false);
+        };
+
+        recognition.onend = () => {
+            setIsListening(false);
+        };
+
+        recognition.start();
+    }, [ingredients]);
+
+    const handleGenerateWithVoice = async (transcript: string) => {
+        if (ingredients.length === 0) {
+            setError("Scan ingredients first!");
+            return;
+        }
+        setError(null);
+        setIsGenerating(true);
+        try {
+            const result = await generateRecipe(ingredients, "Any", [], transcript);
+            if (result.error) setError(result.error);
+            else if (result.recipe) {
+                setRecipe(result.recipe);
+                setRecipesGenerated(prev => prev + 1);
+            }
+        } catch { setError("Failed to generate recipe."); }
+        finally { setIsGenerating(false); }
+    };
 
     // Cleanup effect
     useEffect(() => {
@@ -140,6 +239,7 @@ export default function ArInterface() {
     // Handle capture
     const handleCapture = async () => {
         setError(null);
+        setScanStatus("");
         if (!isCameraActive) {
             const started = await startCamera();
             if (!started) return;
@@ -151,11 +251,65 @@ export default function ArInterface() {
             return;
         }
         setIsAnalyzing(true);
+        setScanStatus("📸 Capturing image...");
+
+        // Simulate progress messages
+        const progressMessages = [
+            "🔍 Analyzing with AI...",
+            "🥗 Detecting ingredients...",
+            "🧠 Processing image..."
+        ];
+        let msgIndex = 0;
+        const progressInterval = setInterval(() => {
+            msgIndex = (msgIndex + 1) % progressMessages.length;
+            setScanStatus(progressMessages[msgIndex]);
+        }, 2000);
+
         try {
             const result = await analyzeImage(base64Image);
-            if (result.error) setError(result.error);
-            else setIngredients(result.ingredients);
-        } catch { setError("Failed to analyze image."); }
+            clearInterval(progressInterval);
+
+            if (!result || typeof result !== 'object') {
+                setScanStatus("");
+                setError("Unexpected response. Please try again.");
+                return;
+            }
+
+            if (result.error) {
+                setScanStatus("");
+                setError(result.error);
+            } else if (!result.ingredients || !Array.isArray(result.ingredients) || result.ingredients.length === 0) {
+                setScanStatus("");
+                setError("🤔 No food detected! Try pointing at any edible items - snacks, drinks, cooked food, or packaged items.");
+            } else {
+                // Safely filter and validate ingredients
+                const validIngredients = result.ingredients.filter((i): i is Ingredient =>
+                    i && typeof i === 'object' && typeof i.name === 'string' && i.name.trim().length > 0
+                );
+
+                if (validIngredients.length === 0) {
+                    setScanStatus("");
+                    setError("🤔 Could not identify food items. Try again with better lighting.");
+                    return;
+                }
+
+                setIngredients(validIngredients);
+                setScanStatus(`✅ Found ${validIngredients.length} item${validIngredients.length > 1 ? 's' : ''}!`);
+                // Trigger cool scan animation
+                setNewlyScannedItems(validIngredients.map((i: Ingredient) => i.name));
+                setShowScanSuccess(true);
+                setTimeout(() => {
+                    setShowScanSuccess(false);
+                    setNewlyScannedItems([]);
+                    setScanStatus("");
+                }, 2500);
+            }
+        } catch (err) {
+            console.error("Scan error:", err);
+            clearInterval(progressInterval);
+            setScanStatus("");
+            setError("Failed to analyze image. Please try again.");
+        }
         finally { setIsAnalyzing(false); }
     };
 
@@ -167,20 +321,32 @@ export default function ArInterface() {
         }
         setError(null);
         setIsGenerating(true);
+        console.log("Generating recipe for ingredients:", ingredients.map(i => i.name));
         try {
-            const result = await generateRecipe(ingredients);
-            if (result.error) setError(result.error);
-            else if (result.recipe) {
+            const result = await generateRecipe(ingredients, "Any", [], voiceTranscript);
+            console.log("Recipe generation result:", result);
+            if (result.error) {
+                console.error("Recipe error:", result.error);
+                setError(result.error);
+            } else if (result.recipe) {
+                console.log("Recipe received:", result.recipe.title);
                 setRecipe(result.recipe);
                 setRecipesGenerated(prev => prev + 1);
+            } else {
+                console.log("No recipe in result");
+                setError("No recipe generated. Please try again.");
             }
-        } catch { setError("Failed to generate recipe."); }
+        } catch (err) {
+            console.error("Recipe generation error:", err);
+            setError("Failed to generate recipe. Please try again.");
+        }
         finally { setIsGenerating(false); }
     };
 
     const handleReset = () => {
         setRecipe(null);
         setIngredients([]);
+        setVoiceTranscript("");
     };
 
     const healthScore = recipe?.health_score || 8;
@@ -202,22 +368,25 @@ export default function ArInterface() {
             {/* Fallback if no camera */}
             {!isCameraActive && (
                 <div className="absolute inset-0 bg-gradient-to-br from-[#e8e0d0] via-[#d8d0c0] to-[#c8c0b0] flex items-center justify-center">
-                    <button
-                        onClick={startCamera}
-                        disabled={isCameraLoading}
-                        className="flex flex-col items-center gap-4"
-                    >
-                        <div className="w-24 h-24 rounded-full bg-white/80 flex items-center justify-center shadow-lg">
-                            {isCameraLoading ? (
-                                <Loader2 className="w-10 h-10 text-gray-600 animate-spin" />
-                            ) : (
-                                <Camera className="w-10 h-10 text-gray-700" />
-                            )}
-                        </div>
-                        <p className="text-gray-600 font-medium">
-                            {isCameraLoading ? "Starting..." : "Tap to enable camera"}
-                        </p>
-                    </button>
+                    <div className="flex flex-col items-center gap-4">
+                        <button
+                            onClick={startCamera}
+                            disabled={isCameraLoading}
+                            className="flex flex-col items-center gap-4"
+                        >
+                            <div className="w-24 h-24 rounded-full bg-white/80 flex items-center justify-center shadow-lg">
+                                {isCameraLoading ? (
+                                    <Loader2 className="w-10 h-10 text-gray-600 animate-spin" />
+                                ) : (
+                                    <Camera className="w-10 h-10 text-gray-700" />
+                                )}
+                            </div>
+                            <p className="text-gray-600 font-medium">
+                                {isCameraLoading ? "Starting camera..." : "Tap to enable camera"}
+                            </p>
+                        </button>
+                        <p className="text-gray-500 text-sm text-center px-8">Scan any food - snacks, drinks, fruits, cooked meals, or packaged items</p>
+                    </div>
                 </div>
             )}
 
@@ -227,31 +396,109 @@ export default function ArInterface() {
                     <div className="relative w-56 h-56">
                         {/* Outer ring */}
                         <div className={clsx(
-                            "absolute inset-0 rounded-full border-4 border-white/60",
-                            isAnalyzing && "animate-pulse"
+                            "absolute inset-0 rounded-full border-4 transition-all duration-300",
+                            showScanSuccess ? "border-green-400 scale-110" : "border-white/60",
+                            isAnalyzing && "animate-pulse border-yellow-400"
                         )} />
                         {/* Inner glow ring */}
-                        <div className="absolute inset-4 rounded-full border-2 border-yellow-300/60" />
+                        <div className={clsx(
+                            "absolute inset-4 rounded-full border-2 transition-all duration-300",
+                            showScanSuccess ? "border-green-300 scale-105" : "border-yellow-300/60"
+                        )} />
                         {/* Center dot */}
                         <div className="absolute inset-0 flex items-center justify-center">
                             <div className={clsx(
-                                "w-4 h-4 rounded-full",
-                                isAnalyzing ? "bg-yellow-400 animate-ping" : "bg-yellow-300/80"
+                                "w-4 h-4 rounded-full transition-all duration-300",
+                                showScanSuccess ? "bg-green-500 scale-150" :
+                                    isAnalyzing ? "bg-yellow-400 animate-ping" : "bg-yellow-300/80"
                             )} />
                         </div>
+
+                        {/* Scanning laser effect */}
+                        {isAnalyzing && (
+                            <div className="absolute inset-0 overflow-hidden rounded-full">
+                                <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-scan-line" />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Scan Status Message */}
+                    {(scanStatus || isAnalyzing) && (
+                        <div className="absolute top-full mt-6 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                            <div className="px-6 py-3 bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg">
+                                <p className="text-sm font-medium text-gray-800 flex items-center gap-2">
+                                    {isAnalyzing && !scanStatus.includes("✅") && (
+                                        <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                                    )}
+                                    {scanStatus || "🔍 Analyzing..."}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Scan Success Animation Overlay */}
+            {showScanSuccess && (
+                <div className="absolute inset-0 pointer-events-none z-30">
+                    {/* Center burst effect */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-72 h-72 rounded-full bg-green-400/20 animate-ping-slow" />
+                        <div className="absolute w-56 h-56 rounded-full bg-green-300/30 animate-ping-slower" />
+                    </div>
+
+                    {/* Particle effects */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        {[...Array(12)].map((_, i) => (
+                            <div
+                                key={i}
+                                className="absolute w-3 h-3 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 animate-particle"
+                                style={{
+                                    '--particle-angle': `${i * 30}deg`,
+                                    animationDelay: `${i * 50}ms`,
+                                } as React.CSSProperties}
+                            />
+                        ))}
+                    </div>
+
+                    {/* Success checkmark */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-20 h-20 rounded-full bg-green-500 flex items-center justify-center animate-bounce-in shadow-lg shadow-green-500/50">
+                            <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                        </div>
+                    </div>
+
+                    {/* Floating ingredient names */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        {newlyScannedItems.slice(0, 6).map((item, i) => (
+                            <div
+                                key={item}
+                                className="absolute px-4 py-2 bg-white/90 rounded-full shadow-lg font-semibold text-gray-800 animate-float-up"
+                                style={{
+                                    '--float-x': `${(i % 2 === 0 ? -1 : 1) * (20 + Math.random() * 60)}px`,
+                                    '--float-delay': `${i * 150}ms`,
+                                    animationDelay: `${i * 150}ms`,
+                                } as React.CSSProperties}
+                            >
+                                <span className="mr-2">{getIngredientEmoji(item)}</span>
+                                {item}
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
 
             {/* Floating Ingredient Tags */}
-            {ingredients.length > 0 && (
+            {ingredients.length > 0 && !showScanSuccess && (
                 <div className="absolute top-20 left-0 right-0 px-4 pointer-events-none">
                     <div className="flex flex-wrap gap-2 justify-center">
                         {ingredients.slice(0, 6).map((ing, i) => (
                             <div
                                 key={ing.name}
                                 className={clsx(
-                                    "flex items-center gap-2 px-4 py-2 rounded-full shadow-lg",
+                                    "flex items-center gap-2 px-4 py-2 rounded-full shadow-lg animate-ingredient-appear",
                                     ing.expiry_status === "fresh" ? "bg-[#a8d5a2]" :
                                         ing.expiry_status === "soon" ? "bg-[#f0e68c]" : "bg-[#e8d8a0]"
                                 )}
@@ -302,10 +549,25 @@ export default function ArInterface() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <input
                             type="text"
-                            placeholder="Find recipes using Instamart..."
-                            className="w-full h-10 rounded-xl bg-gray-100 pl-10 pr-4 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                            placeholder={isListening ? "Listening..." : "Find recipes using Instamart..."}
+                            className={clsx(
+                                "w-full h-10 rounded-xl bg-gray-100 pl-10 pr-12 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-300",
+                                isListening && "ring-2 ring-orange-400 animate-pulse"
+                            )}
                             onFocus={handleGenerateRecipe}
+                            value={voiceTranscript}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVoiceTranscript(e.target.value)}
                         />
+                        <button
+                            onClick={startListening}
+                            disabled={isListening || isGenerating}
+                            className={clsx(
+                                "absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg transition-colors",
+                                isListening ? "bg-orange-500 text-white" : "hover:bg-gray-200 text-gray-500"
+                            )}
+                        >
+                            {isListening ? <MicOff className="w-4 h-4 animate-pulse" /> : <Mic className="w-4 h-4" />}
+                        </button>
                     </div>
                 </div>
 
@@ -339,7 +601,25 @@ export default function ArInterface() {
                 <div className="bg-white rounded-t-3xl shadow-lg">
                     <div className="flex justify-around items-center py-3 px-4">
                         <NavItem icon={<Camera className="w-5 h-5" />} label="Camera" active href="/" />
-                        <NavItem icon={<Search className="w-5 h-5" />} label="Search" href="/search" />
+
+                        {/* Separate Search Button */}
+                        <button
+                            onClick={handleGenerateRecipe}
+                            disabled={isGenerating || ingredients.length === 0}
+                            className={clsx(
+                                "flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-200",
+                                ingredients.length > 0
+                                    ? "text-orange-500 hover:bg-orange-50"
+                                    : "text-gray-400"
+                            )}
+                        >
+                            {isGenerating ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                            ) : (
+                                <Search className="w-5 h-5" />
+                            )}
+                            <span className="text-[10px] font-medium">Search</span>
+                        </button>
 
                         {/* Center Capture Button */}
                         <button
@@ -348,11 +628,18 @@ export default function ArInterface() {
                             className="relative -mt-8"
                         >
                             <div className={clsx(
-                                "w-16 h-16 rounded-full bg-white border-4 border-gray-200 shadow-xl flex items-center justify-center",
-                                isAnalyzing && "animate-pulse"
+                                "w-16 h-16 rounded-full bg-white border-4 shadow-xl flex items-center justify-center transition-all duration-300",
+                                isAnalyzing ? "border-yellow-400 animate-pulse" :
+                                    showScanSuccess ? "border-green-400" : "border-gray-200"
                             )}>
                                 {isAnalyzing ? (
-                                    <Loader2 className="w-6 h-6 text-gray-600 animate-spin" />
+                                    <Loader2 className="w-6 h-6 text-yellow-500 animate-spin" />
+                                ) : showScanSuccess ? (
+                                    <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center animate-bounce-subtle">
+                                        <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
                                 ) : (
                                     <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center">
                                         <Camera className="w-5 h-5 text-white" />
